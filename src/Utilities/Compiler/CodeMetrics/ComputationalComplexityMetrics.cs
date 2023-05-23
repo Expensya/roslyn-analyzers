@@ -3,18 +3,58 @@
 #if HAS_IOPERATION
 
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using Analyzer.Utilities.Lightup;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Operations;
-
-#if LEGACY_CODE_METRICS_MODE
 using Analyzer.Utilities.Extensions;
-#endif
+using System.Runtime.CompilerServices;
 
 namespace Microsoft.CodeAnalysis.CodeMetrics
 {
+
+    internal static class DescendantEnumeratorWrapper
+    {
+        public static IEnumerable<IOperation> DescendantsWrapper(this IOperation operation)
+        {
+            var iterator = operation.DescendantsAndSelf().GetEnumerator();
+            bool moveNextSucceeded;
+
+            IOperation lastDescendant = null;
+
+            do
+            {
+                try
+                {
+                    moveNextSucceeded = iterator.MoveNext();
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[ERROR2] - {ex.Message}");
+                    SyntaxNode node = lastDescendant.Syntax;
+                    SyntaxTree tree = node.SyntaxTree;
+                    FileLinePositionSpan lineSpan = tree.GetLineSpan(node.Span);
+
+                    Console.WriteLine($"[INFO] Kind2: {lastDescendant.Kind}");
+                    Console.WriteLine($"[INFO] SyntaxNode-LineSpan2: {lineSpan.ToString()}");
+                    Console.WriteLine($"[INFO] SyntaxNode-FilePath2: {tree.FilePath.ToString()}");
+                    moveNextSucceeded = false;
+                }
+
+                if (moveNextSucceeded)
+                {
+                    lastDescendant = iterator.Current;
+                    yield return lastDescendant;
+                }
+
+            } while (moveNextSucceeded);
+        }
+
+
+    }
+
     /// <summary>
     /// Calculates computational complexity metrics based on the number
     /// of operators and operands found in the code.
@@ -85,6 +125,7 @@ namespace Microsoft.CodeAnalysis.CodeMetrics
                 distinctOperatorKinds, distinctBinaryOperatorKinds, distinctUnaryOperatorKinds, distinctCaseKinds, distinctReferencedSymbols, distinctReferencedConstants);
         }
 
+
         public static ComputationalComplexityMetrics Compute(IOperation operationBlock)
         {
             bool hasSymbolInitializer = false;
@@ -106,7 +147,7 @@ namespace Microsoft.CodeAnalysis.CodeMetrics
                 executableLinesOfCode += 1;
             }
 
-            foreach (var operation in operationBlock.Descendants())
+            foreach (var operation in operationBlock.DescendantsWrapper())
             {
                 executableLinesOfCode += getExecutableLinesOfCode(operation, ref hasSymbolInitializer);
 
@@ -116,11 +157,11 @@ namespace Microsoft.CodeAnalysis.CodeMetrics
                 }
 
 #if LEGACY_CODE_METRICS_MODE
-                // Legacy mode does not account for code within lambdas/local functions for code metrics.
-                if (operation.IsWithinLambdaOrLocalFunction(out _))
-                {
-                    continue;
-                }
+    // Legacy mode does not account for code within lambdas/local functions for code metrics.
+    if (operation.IsWithinLambdaOrLocalFunction(out _))
+    {
+        continue;
+    }
 #endif
 
                 if (operation.ConstantValue.HasValue)

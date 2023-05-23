@@ -141,6 +141,41 @@ namespace Microsoft.CodeAnalysis.CodeMetrics
             return declSyntax;
         }
 
+        public static IEnumerable<IOperation> DescendantsAndSelfWrapper(this IOperation operation)
+        {
+            var iterator = operation.DescendantsAndSelf().GetEnumerator();
+            bool moveNextSucceeded;
+
+            IOperation lastDescendant = null;
+
+            do
+            {
+                try
+                {
+                    moveNextSucceeded = iterator.MoveNext();
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[ERROR] - {ex.Message}");
+                    SyntaxNode node = lastDescendant.Syntax;
+                    SyntaxTree tree = node.SyntaxTree;
+                    FileLinePositionSpan lineSpan = tree.GetLineSpan(node.Span);
+
+                    Console.WriteLine($"[INFO] Kind: {lastDescendant.Kind}");
+                    Console.WriteLine($"[INFO] SyntaxNode-LineSpan: {lineSpan.ToString()}");
+                    Console.WriteLine($"[INFO] SyntaxNode-FilePath: {tree.FilePath.ToString()}");
+                    moveNextSucceeded = false;
+                }
+
+                if (moveNextSucceeded)
+                {
+                    lastDescendant = iterator.Current;
+                    yield return lastDescendant;
+                }
+
+            } while (moveNextSucceeded);
+        }
+
         internal static async Task<(int cyclomaticComplexity, ComputationalComplexityMetrics computationalComplexityMetrics)> ComputeCoupledTypesAndComplexityExcludingMemberDeclsAsync(
             ImmutableArray<SyntaxReference> declarations,
             ISymbol symbol,
@@ -234,14 +269,14 @@ namespace Microsoft.CodeAnalysis.CodeMetrics
                         computationalComplexityMetrics = computationalComplexityMetrics.Union(ComputationalComplexityMetrics.Compute(operationBlock));
 
                         // Add used types within executable code in the operation tree.
-                        foreach (var operation in operationBlock.DescendantsAndSelf())
+                        foreach (var operation in operationBlock.DescendantsAndSelfWrapper())
                         {
 #if LEGACY_CODE_METRICS_MODE
-                            // Legacy mode does not account for code within lambdas/local functions for code metrics.
-                            if (operation.IsWithinLambdaOrLocalFunction(out _))
-                            {
-                                continue;
-                            }
+                        Legacy mode does not account for code within lambdas/local functions for code metrics.
+                    if (operation.IsWithinLambdaOrLocalFunction(out _))
+                    {
+                        continue;
+                    }
 #endif
 
                             if (!operation.IsImplicit && hasConditionalLogic(operation))
